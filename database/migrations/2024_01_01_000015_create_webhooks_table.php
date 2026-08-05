@@ -15,7 +15,7 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('url', 500);
             $table->string('secret', 64)->nullable();
-            $table->json('events')->default('["submission.created"]');
+            $table->json('events')->default(new \Illuminate\Database\Query\Expression('(JSON_ARRAY("submission.created"))'));
             $table->boolean('active')->default(true);
             $table->timestamp('last_triggered_at')->nullable();
             $table->unsignedInteger('failure_count')->default(0);
