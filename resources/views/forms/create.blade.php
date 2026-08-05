@@ -86,9 +86,9 @@
             // Poll for completion
             await pollJobStatus(data.job_id);
         } catch(e) {
-            status.classList.add('hidden');
+            document.getElementById('ai-status').innerHTML = '<span class="text-red-600">Error: ' + e.message + '</span>';
+            document.getElementById('ai-status').classList.remove('hidden');
             btn.disabled = false;
-            alert('Failed to start AI generation. Is your API key configured?');
         }
     }
 
@@ -101,26 +101,22 @@
             const data = await res.json();
 
             if (data.status === 'completed') {
-                // 1. Create a blank form to get the form ID
+                // Create form and apply AI schema in one request
                 const formRes = await fetch('{{ route("forms.store") }}', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}'},
                     body: JSON.stringify({
                         title: data.schema?.title || 'AI Generated Form',
                         description: data.schema?.description || '',
+                        ai_job_id: jobId,
                     })
                 });
+                if (!formRes.ok) {
+                    const err = await formRes.json().catch(() => ({}));
+                    throw new Error(err.message || 'Failed to create form (HTTP ' + formRes.status + ')');
+                }
                 const formData = await formRes.json();
-                if (!formData.form_id) throw new Error('Failed to create form');
-
-                // 2. Apply the AI-generated schema to the new form
-                await fetch(`/ai/apply/${formData.form_id}`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}'},
-                    body: JSON.stringify({ ai_job_id: jobId })
-                });
-
-                // 3. Redirect to the form builder
+                if (!formData.form_id) throw new Error('Server did not return a form ID');
                 window.location.href = formData.redirect;
                 return;
             } else if (data.status === 'failed') {

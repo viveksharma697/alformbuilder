@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AiGenerationJob;
 use App\Models\Form;
 use App\Models\FormVersion;
 use App\Services\FormSchemaValidator;
@@ -32,6 +33,7 @@ class FormController extends Controller
         $request->validate([
             'title' => 'required|string|max:200',
             'description' => 'nullable|string|max:1000',
+            'ai_job_id' => 'nullable|integer|exists:ai_generation_jobs,id',
         ]);
 
         $schema = [
@@ -42,10 +44,21 @@ class FormController extends Controller
             ],
         ];
 
+        // If an AI job ID is provided, use its generated schema directly
+        if ($request->filled('ai_job_id')) {
+            $aiJob = AiGenerationJob::where('id', $request->ai_job_id)
+                ->where('user_id', auth()->id())
+                ->where('status', 'completed')
+                ->first();
+            if ($aiJob && !empty($aiJob->result_schema)) {
+                $schema = $aiJob->result_schema;
+            }
+        }
+
         $form = Form::create([
             'user_id' => auth()->id(),
-            'title' => $request->title,
-            'description' => $request->description,
+            'title' => $schema['title'] ?? $request->title,
+            'description' => $schema['description'] ?? $request->description,
             'schema' => $schema,
             'settings' => ['submit_message' => 'Thank you for your submission!', 'redirect_url' => ''],
         ]);
