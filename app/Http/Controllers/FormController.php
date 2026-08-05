@@ -50,6 +50,13 @@ class FormController extends Controller
             'settings' => ['submit_message' => 'Thank you for your submission!', 'redirect_url' => ''],
         ]);
 
+        if ($request->wantsJson()) {
+            return response()->json([
+                'form_id' => $form->id,
+                'redirect' => route('forms.builder', $form),
+            ]);
+        }
+
         return redirect()->route('forms.builder', $form);
     }
 

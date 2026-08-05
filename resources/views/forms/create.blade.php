@@ -101,18 +101,27 @@
             const data = await res.json();
 
             if (data.status === 'completed') {
-                // Create form with the AI schema and redirect to builder
+                // 1. Create a blank form to get the form ID
                 const formRes = await fetch('{{ route("forms.store") }}', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}'},
                     body: JSON.stringify({
                         title: data.schema?.title || 'AI Generated Form',
                         description: data.schema?.description || '',
-                        _from_ai: jobId
                     })
                 });
-                // redirect handled by server
-                window.location.href = '{{ route("forms.index") }}?ai_job=' + jobId;
+                const formData = await formRes.json();
+                if (!formData.form_id) throw new Error('Failed to create form');
+
+                // 2. Apply the AI-generated schema to the new form
+                await fetch(`/ai/apply/${formData.form_id}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}'},
+                    body: JSON.stringify({ ai_job_id: jobId })
+                });
+
+                // 3. Redirect to the form builder
+                window.location.href = formData.redirect;
                 return;
             } else if (data.status === 'failed') {
                 status.innerHTML = '<span class="text-red-600">Generation failed: ' + (data.error || 'Unknown error') + '</span>';
