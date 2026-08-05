@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\GenerateAiFormJob;
 use App\Models\AiGenerationJob;
 use App\Models\Form;
+use App\Services\AiFormService;
 use App\Services\FormSchemaValidator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,16 +24,56 @@ class AiFormController extends Controller
             'user_id' => auth()->id(),
             'type' => 'create',
             'prompt' => $request->prompt,
-            'status' => 'pending',
+            'status' => 'processing',
         ]);
 
-        GenerateAiFormJob::dispatch($aiJob->id);
+        $startTime = microtime(true);
 
-        return response()->json([
-            'job_id' => $aiJob->id,
-            'status' => 'pending',
-            'message' => 'AI generation started. Check status for updates.',
-        ]);
+        try {
+            $aiService = app(AiFormService::class);
+            $result = $aiService->generateSchema($request->prompt);
+            $schema = $result['schema'];
+
+            $errors = $this->validator->validate($schema);
+            if (!empty($errors)) {
+                $schema = $this->validator->repair($schema);
+            }
+
+            $aiJob->update([
+                'status' => 'completed',
+                'result_schema' => $schema,
+                'ai_model' => $result['model'],
+                'prompt_tokens' => $result['prompt_tokens'],
+                'completion_tokens' => $result['completion_tokens'],
+                'latency_ms' => $result['latency_ms'],
+            ]);
+
+            // Create the form immediately with the AI schema
+            $form = Form::create([
+                'user_id' => auth()->id(),
+                'title' => $schema['title'] ?? 'AI Generated Form',
+                'description' => $schema['description'] ?? '',
+                'schema' => $schema,
+                'settings' => ['submit_message' => 'Thank you for your submission!', 'redirect_url' => ''],
+            ]);
+
+            return response()->json([
+                'status' => 'completed',
+                'form_id' => $form->id,
+                'redirect' => route('forms.builder', $form),
+            ]);
+        } catch (\Throwable $e) {
+            $aiJob->update([
+                'status' => 'failed',
+                'error_message' => $e->getMessage(),
+                'latency_ms' => (int) ((microtime(true) - $startTime) * 1000),
+            ]);
+
+            return response()->json([
+                'status' => 'failed',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 
     public function editWithAi(Request $request, Form $form)

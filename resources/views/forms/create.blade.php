@@ -70,9 +70,10 @@
         }
 
         const btn = document.getElementById('ai-gen-btn');
-        const status = document.getElementById('ai-status');
+        const statusEl = document.getElementById('ai-status');
         btn.disabled = true;
-        status.classList.remove('hidden');
+        statusEl.classList.remove('hidden');
+        statusEl.innerHTML = '<svg class="w-4 h-4 animate-spin inline mr-1" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Generating your form, please wait...';
 
         try {
             const res = await fetch('{{ route("ai.generate") }}', {
@@ -81,53 +82,21 @@
                 body: JSON.stringify({ prompt })
             });
             const data = await res.json();
-            if (!data.job_id) throw new Error('No job ID returned');
 
-            // Poll for completion
-            await pollJobStatus(data.job_id);
-        } catch(e) {
-            document.getElementById('ai-status').innerHTML = '<span class="text-red-600">Error: ' + e.message + '</span>';
-            document.getElementById('ai-status').classList.remove('hidden');
-            btn.disabled = false;
-        }
-    }
-
-    async function pollJobStatus(jobId) {
-        const status = document.getElementById('ai-status');
-
-        for (let i = 0; i < 60; i++) {
-            await new Promise(r => setTimeout(r, 2000));
-            const res = await fetch(`/ai/status/${jobId}`);
-            const data = await res.json();
-
-            if (data.status === 'completed') {
-                // Create form and apply AI schema in one request
-                const formRes = await fetch('{{ route("forms.store") }}', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}'},
-                    body: JSON.stringify({
-                        title: data.schema?.title || 'AI Generated Form',
-                        description: data.schema?.description || '',
-                        ai_job_id: jobId,
-                    })
-                });
-                if (!formRes.ok) {
-                    const err = await formRes.json().catch(() => ({}));
-                    throw new Error(err.message || 'Failed to create form (HTTP ' + formRes.status + ')');
-                }
-                const formData = await formRes.json();
-                if (!formData.form_id) throw new Error('Server did not return a form ID');
-                window.location.href = formData.redirect;
-                return;
-            } else if (data.status === 'failed') {
-                status.innerHTML = '<span class="text-red-600">Generation failed: ' + (data.error || 'Unknown error') + '</span>';
-                document.getElementById('ai-gen-btn').disabled = false;
+            if (data.status === 'completed' && data.redirect) {
+                window.location.href = data.redirect;
                 return;
             }
-        }
 
-        status.innerHTML = '<span class="text-red-600">Timed out. Please try again.</span>';
-        document.getElementById('ai-gen-btn').disabled = false;
+            if (data.status === 'failed') {
+                throw new Error(data.error || 'AI generation failed');
+            }
+
+            throw new Error('Unexpected response from server');
+        } catch(e) {
+            statusEl.innerHTML = '<span class="text-red-600">Error: ' + e.message + '</span>';
+            btn.disabled = false;
+        }
     }
     </script>
     @endpush
